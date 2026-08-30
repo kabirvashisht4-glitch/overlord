@@ -1,0 +1,8 @@
+# API keys live here. NEVER commit this file.
+# If you ever push a key to GitHub, assume it is compromised within minutes —
+# bots scan new commits for key patterns continuously. Revoke, don't hide.
+.env
+
+node_modules/
+*.log
+.DS_Store

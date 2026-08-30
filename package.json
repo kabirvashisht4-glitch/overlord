@@ -1,0 +1,14 @@
+{
+  "name": "overlord",
+  "version": "0.1.0",
+  "description": "A local voice agent. Speak -> it decides -> it acts on your Mac.",
+  "type": "module",
+  "bin": { "overlord": "./src/index.js" },
+  "scripts": {
+    "start": "node src/index.js",
+    "text": "node src/index.js --text",
+    "dry": "node src/index.js --text --dry"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {}
+}
