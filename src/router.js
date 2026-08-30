@@ -103,3 +103,33 @@ export async function route(transcript, registry) {
 
   return { name: call.name, input: call.input };
 }
+
+// ---------------------------------------------------------------------------
+// THE MOCK ROUTER.
+//
+// CONCEPT: TEST AT THE SEAM.
+//
+// This is the same `route()` signature, but it uses dumb keyword matching and
+// zero network calls. Why keep the very thing described above as wrong?
+//
+// Because it lets you test the ENTIRE rest of the pipeline — registry,
+// executor, voice output, error handling — with no API key, no internet, no
+// cost, and no waiting. When something breaks you immediately know whether
+// it's "the model chose wrong" (real router fails, mock works) or "the code
+// is broken" (both fail). That's a diagnostic superpower for two dozen lines.
+//
+// Build the fake version of your slowest, most expensive dependency. Always.
+// ---------------------------------------------------------------------------
+export async function mockRoute(transcript) {
+  const t = transcript.toLowerCase();
+
+  if (t.includes("claude")) return { name: "ask_llm", input: { provider: "claude", prompt: transcript } };
+  if (t.includes("gemini")) return { name: "ask_llm", input: { provider: "gemini", prompt: transcript } };
+  if (t.includes("youtube") || t.startsWith("play")) return { name: "play_youtube", input: { query: transcript.replace(/^play /i, "") } };
+  if (t.includes("open")) return { name: "open_app", input: { app_name: transcript.split(/open /i)[1]?.trim() || "Finder" } };
+  if (t.includes("volume")) return { name: "system_control", input: { operation: "set_volume", value: 30 } };
+  if (t.includes("screenshot")) return { name: "system_control", input: { operation: "screenshot" } };
+  if (t.includes("pause") || t.includes("resume")) return { name: "system_control", input: { operation: "play_pause" } };
+
+  return { name: "answer", input: { text: `[mock] I heard: "${transcript}"` } };
+}
