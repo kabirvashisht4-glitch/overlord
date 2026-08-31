@@ -129,8 +129,28 @@ function alignedWords(text) {
  */
 export function detectWakeWord(transcript, wakeWord, threshold = 0.72) {
   const words = alignedWords(transcript);
-  const wake = normalise(wakeWord);
-  if (!words.length) return { matched: false, command: "", score: 0 };
+
+  // ACCEPT A LIST, NOT JUST ONE WORD.
+  //
+  // Found on real hardware: whisper's base.en model transcribed "Overlord"
+  // as "Loge" — 0.25 similarity, nowhere near any sane threshold. No amount
+  // of fuzzy matching rescues that, because the model didn't hear a mangled
+  // version of the word, it heard a different word entirely.
+  //
+  // Lowering the threshold to catch it would accept half the dictionary.
+  // The fix is to widen the target instead of loosening the test: accept
+  // several exact-ish spellings, including the ones your model actually
+  // produces. `npm run tune` prints the line to add when it sees a miss.
+  //
+  // Generally: when a matcher fails on real data, prefer enumerating the
+  // real variants over relaxing the comparison. Precision stays high.
+  const candidates = (Array.isArray(wakeWord) ? wakeWord : [wakeWord])
+    .map(normalise)
+    .filter(Boolean);
+  if (!words.length || !candidates.length) {
+    return { matched: false, command: "", score: 0 };
+  }
+  const wake = candidates[0];
 
   const wakeWordCount = wake.split(" ").length;
   let best = { matched: false, command: "", score: 0 };
@@ -146,10 +166,11 @@ export function detectWakeWord(transcript, wakeWord, threshold = 0.72) {
   // and allow it to start after up to 2 filler words ("um", "hey", "ok").
   for (let start = 0; start <= Math.min(2, words.length - 1); start++) {
     for (let take = wakeWordCount; take <= wakeWordCount + 1; take++) {
-      const candidate = words.slice(start, start + take).map((w) => w.norm).join(" ");
-      if (!candidate) continue;
+      const spoken = words.slice(start, start + take).map((w) => w.norm).join(" ");
+      if (!spoken) continue;
 
-      const score = similarity(candidate, wake);
+      // Best score against ANY accepted spelling of the wake word.
+      const score = Math.max(...candidates.map((c) => similarity(spoken, c)));
       if (score > bestScore) bestScore = score;
       if (score >= threshold && score > best.score) {
         best = {
@@ -163,7 +184,34 @@ export function detectWakeWord(transcript, wakeWord, threshold = 0.72) {
     }
   }
 
+  best.score = best.matched ? best.score : bestScore;
   return best;
+}
+
+/**
+ * Diagnostic only: find the wake word ANYWHERE in the sentence, including
+ * places the matcher deliberately refuses to look.
+ *
+ * Why this exists: the real first failure was a person saying the wake word
+ * at the END of a sentence. The matcher correctly ignored it — that rule is
+ * what stops "the overlord manga" firing a command — but "correctly ignored"
+ * and "broken" are indistinguishable to the person standing there.
+ *
+ * So the tool that explains failures needs to see more than the matcher does.
+ * A rule the user cannot see is a rule the user will keep breaking.
+ */
+export function findWakeWordAnywhere(transcript, wakeWord, threshold = 0.72) {
+  const words = alignedWords(transcript);
+  const candidates = (Array.isArray(wakeWord) ? wakeWord : [wakeWord])
+    .map(normalise)
+    .filter(Boolean);
+
+  let best = { index: -1, word: "", score: 0 };
+  words.forEach((w, i) => {
+    const score = Math.max(...candidates.map((c) => similarity(w.norm, c)));
+    if (score > best.score) best = { index: i, word: w.norm, score };
+  });
+  return { ...best, matched: best.score >= threshold, total: words.length };
 }
 
 // ---------------------------------------------------------------------------

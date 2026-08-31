@@ -59,6 +59,15 @@ export const config = {
   // --- wake word mode ------------------------------------------------------
   wakeWord: get("WAKE_WORD", "overlord"),
 
+  // Extra spellings to accept, comma-separated. Speech-to-text models
+  // sometimes render an unusual name as a completely different word rather
+  // than a near-miss, and no threshold fixes that — you have to name the
+  // variants. `npm run tune` prints the exact line to add when it sees one.
+  wakeAliases: get("WAKE_ALIASES", "over lord,overload,oberlord,overlard")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+
   // How close a mishearing has to be, 0..1. See wakeword.js for why 0.72.
   wakeThreshold: Number(get("WAKE_THRESHOLD", "0.72")),
 
@@ -76,5 +85,9 @@ export const config = {
   // again, so you can say "...and turn it up" naturally. 0 disables it.
   followUpSeconds: Number(get("FOLLOW_UP_SECONDS", "8")),
 };
+
+// The full set the matcher tests against: the primary word first (it is the
+// one shown in messages), then every accepted alias.
+config.wakeWordList = [config.wakeWord, ...config.wakeAliases];
 
 export const isMac = config.platform === "darwin";
