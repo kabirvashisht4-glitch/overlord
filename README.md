@@ -77,7 +77,27 @@ wake-word score against your threshold. In wake mode every failure looks the
 same from outside (silence), so `tune` exists to turn that silence back into
 a readable number.
 
+**Test the voice path with no API key at all:**
+
+```bash
+npm run wake:dry
+```
+
+Real microphone, real transcription, mock brain. It proves the whole voice
+pipeline works before any key or billing is involved. Say the wake word and
+you should see it react.
+
 **Push-to-talk instead** (no wake word, press Enter to talk): `npm run ptt`
+
+### Say the wake word FIRST
+
+```
+"Overlord, open Spotify"        ✓
+"hey what is up overlord"       ✗  too late — only the first 3 words count
+```
+
+That rule is what stops the word firing a command when it comes up in
+ordinary conversation.
 
 macOS will ask for mic permission the first time. Terminal also needs
 **System Settings → Privacy & Security → Accessibility** ticked for the
