@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Overlord — a local voice agent for macOS. Say its name and it opens apps, plays music and routes questions to Claude or Gemini. Transcription runs on your laptop.">
+<meta property="og:title" content="Overlord">
+<meta property="og:description" content="A voice agent that turns speech into actions, not text. Runs on your Mac, transcribes locally.">
+<meta property="og:type" content="website">
+<style>*{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>Overlord — local voice agent for macOS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=JetBrains+Mono:wght@400;500;700&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;1,6..72,300&display=swap">
+
+<style>
+  :root{
+    --ink:#0B0D10;          /* cold slate-black, the dimmed-display ground */
+    --ink-2:#12151A;
+    --ink-3:#1A1E25;
+    --bone:#E8E3DA;         /* warm off-white, biased toward the accent */
+    --bone-dim:#9A958C;
+    --bone-faint:#5E5A54;
+    --blood:#B4402F;        /* oxblood — the one loud thing on the page */
+    --blood-lo:#7E2C20;
+    --moss:#7C9A6B;         /* success only, never decoration */
+    --rule:#242830;
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+    --disp:"Archivo",system-ui,-apple-system,sans-serif;
+    --serif:"Newsreader",Georgia,serif;
+  }
+
+  /* Deliberately single-theme: this is a terminal tool and it commits to the
+     terminal's world. Every colour is painted explicitly so the page holds
+     on any host ground. */
+  body{
+    background:var(--ink);
+    color:var(--bone);
+    font-family:var(--serif);
+    font-size:18px;
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  *{box-sizing:border-box}
+
+  .wrap{max-width:860px;margin:0 auto;padding:0 28px}
+  section{padding:76px 0;border-top:1px solid var(--rule)}
+  section:first-of-type{border-top:0}
+
+  h1,h2,h3{font-family:var(--disp);text-wrap:balance;margin:0}
+  h2{font-size:clamp(26px,4vw,34px);font-weight:800;letter-spacing:-.02em;margin-bottom:8px}
+  h3{font-size:18px;font-weight:600;letter-spacing:.01em;margin-bottom:6px}
+  p{margin:0 0 18px;max-width:64ch}
+  a{color:var(--bone);text-decoration-color:var(--blood);text-underline-offset:3px}
+  a:hover{color:var(--blood)}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--blood);outline-offset:3px}
+
+  .eyebrow{
+    font-family:var(--mono);font-size:11px;font-weight:500;
+    letter-spacing:.18em;text-transform:uppercase;color:var(--blood);
+    margin-bottom:14px;display:block;
+  }
+  .lede{font-size:21px;font-weight:300;color:var(--bone);max-width:56ch}
+  .dim{color:var(--bone-dim)}
+  small{font-size:14px;color:var(--bone-dim);font-family:var(--disp)}
+
+  /* ---------- hero ---------- */
+  header{padding:64px 0 8px}
+  .mark{
+    font-family:var(--disp);font-weight:800;font-size:13px;letter-spacing:.34em;
+    text-transform:uppercase;color:var(--bone-dim);display:flex;align-items:center;gap:12px;
+  }
+  .mark b{color:var(--blood);font-size:19px;letter-spacing:0;line-height:1}
+  h1{
+    font-size:clamp(52px,11vw,104px);font-weight:800;letter-spacing:-.045em;
+    line-height:.92;margin:26px 0 20px;
+  }
+  h1 em{font-style:normal;color:var(--blood)}
+
+  /* ---------- terminal ---------- */
+  .term{
+    background:var(--ink-2);border:1px solid var(--rule);border-radius:6px;
+    font-family:var(--mono);font-size:14.5px;line-height:1.85;
+    margin:34px 0 0;overflow:hidden;
+  }
+  .term-bar{
+    display:flex;align-items:center;gap:8px;padding:11px 15px;
+    border-bottom:1px solid var(--rule);background:var(--ink-3);
+  }
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--bone-faint);opacity:.5}
+  .term-title{
+    font-family:var(--mono);font-size:11px;color:var(--bone-faint);
+    margin-left:8px;letter-spacing:.06em;
+  }
+  .term-body{padding:20px 22px;min-height:236px;overflow-x:auto}
+  .term-body .row{white-space:pre;display:block}
+  .said{color:var(--bone)}
+  .said::before{content:"you  ";color:var(--blood);font-weight:700}
+  .did{color:var(--moss)}
+  .did::before{content:"→    ";color:var(--bone-faint)}
+  .note{color:var(--bone-faint)}
+  .cursor{
+    display:inline-block;width:8px;height:1.05em;background:var(--blood);
+    vertical-align:text-bottom;animation:blink 1.05s step-end infinite;
+  }
+  @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+
+  .cta{display:flex;gap:14px;flex-wrap:wrap;margin-top:32px;align-items:center}
+  .btn{
+    font-family:var(--disp);font-weight:600;font-size:15px;letter-spacing:.01em;
+    padding:12px 22px;border-radius:4px;text-decoration:none;display:inline-block;
+    background:var(--blood);color:#fff;border:1px solid var(--blood);
+    transition:background .15s ease;
+  }
+  .btn:hover{background:var(--blood-lo);color:#fff}
+  .btn.ghost{background:transparent;color:var(--bone);border-color:var(--rule)}
+  .btn.ghost:hover{border-color:var(--blood);color:var(--blood);background:transparent}
+
+  /* ---------- comparison ---------- */
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--rule);
+    border:1px solid var(--rule);border-radius:6px;overflow:hidden;margin-top:28px}
+  .split > div{background:var(--ink-2);padding:24px}
+  .split h3{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase}
+  .split .a h3{color:var(--bone-faint)}
+  .split .b h3{color:var(--blood)}
+  .split p{font-size:16px;margin:0;color:var(--bone-dim)}
+  .split .b p{color:var(--bone)}
+
+  /* ---------- pipeline ---------- */
+  .pipe{
+    display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:30px 0 8px;
+  }
+  .stage{
+    background:var(--ink-2);border:1px solid var(--rule);border-radius:5px;padding:16px 14px;
+    position:relative;
+  }
+  .stage .n{
+    font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--blood);
+    text-transform:uppercase;display:block;margin-bottom:8px;
+  }
+  .stage b{font-family:var(--disp);font-size:15px;font-weight:600;display:block;margin-bottom:3px}
+  .stage span{font-family:var(--mono);font-size:11.5px;color:var(--bone-dim);display:block}
+  .stage::after{
+    content:"→";position:absolute;right:-13px;top:50%;transform:translateY(-50%);
+    color:var(--bone-faint);font-size:13px;z-index:1;
+  }
+  .stage:last-child::after{content:""}
+
+  /* ---------- status table ---------- */
+  table{width:100%;border-collapse:collapse;margin-top:22px;font-family:var(--disp);font-size:15px}
+  th{
+    text-align:left;font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--bone-faint);font-weight:500;
+    padding:0 0 11px;border-bottom:1px solid var(--rule);
+  }
+  td{padding:13px 0;border-bottom:1px solid var(--rule);vertical-align:top}
+  td:last-child{text-align:right;white-space:nowrap;font-family:var(--mono);font-size:12.5px}
+  .yes{color:var(--moss)}
+  .no{color:var(--bone-faint)}
+
+  /* ---------- code ---------- */
+  pre{
+    background:var(--ink-2);border:1px solid var(--rule);border-radius:6px;
+    padding:18px 20px;overflow-x:auto;font-family:var(--mono);font-size:13.5px;
+    line-height:1.75;margin:20px 0;color:var(--bone);
+  }
+  .c-com{color:var(--bone-faint)}
+  .c-key{color:var(--blood)}
+  .c-str{color:var(--moss)}
+  code{font-family:var(--mono);font-size:.88em;background:var(--ink-3);
+    padding:2px 6px;border-radius:3px;color:var(--bone)}
+
+  ol{padding-left:0;list-style:none;counter-reset:s;margin:26px 0 0}
+  ol li{counter-increment:s;padding:0 0 26px 46px;position:relative}
+  ol li::before{
+    content:counter(s,decimal-leading-zero);position:absolute;left:0;top:1px;
+    font-family:var(--mono);font-size:12px;color:var(--blood);letter-spacing:.05em;
+  }
+  ol li b{font-family:var(--disp);font-size:16px;display:block;margin-bottom:4px}
+  ol li span{font-size:16px;color:var(--bone-dim)}
+
+  footer{padding:52px 0 72px;border-top:1px solid var(--rule);
+    display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;align-items:baseline}
+  footer p{font-family:var(--mono);font-size:12.5px;color:var(--bone-faint);margin:0}
+
+  @media (max-width:720px){
+    body{font-size:17px}
+    .split,.pipe{grid-template-columns:1fr}
+    .stage::after{content:"↓";right:auto;left:50%;top:auto;bottom:-15px;transform:translateX(-50%)}
+    .term-body{font-size:12.5px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .cursor{animation:none}
+    *{transition:none!important}
+  }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="mark"><b>▚</b> Overlord</div>
+    <h1>It doesn't type.<br>It <em>does things.</em></h1>
+    <p class="lede">A voice agent that lives on your Mac. Say its name and it opens apps,
+      plays music, changes settings, or hands your question to Claude or Gemini.
+      No cloud service listening in — the transcription happens on your laptop.</p>
+
+    <div class="term" role="img" aria-label="Terminal showing a spoken conversation with Overlord">
+      <div class="term-bar">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span class="term-title">overlord — npm start</span>
+      </div>
+      <div class="term-body" id="term"></div>
+    </div>
+
+    <div class="cta">
+      <a class="btn" href="https://github.com/kabirvashisht4-glitch/overlord">Get it on GitHub</a>
+      <a class="btn ghost" href="#install">How to run it</a>
+      <small>MIT · zero npm dependencies</small>
+    </div>
+  </header>
+
+  <section>
+    <span class="eyebrow">The distinction</span>
+    <h2>Dictation gives you text. This gives you actions.</h2>
+    <p class="dim">Every voice tool on your Mac converts speech into characters and types them
+      into whatever window has focus. Useful — but the computer never actually does anything.</p>
+    <div class="split">
+      <div class="a">
+        <h3>Dictation</h3>
+        <p>You say "open Spotify" → the words <em>open Spotify</em> appear in your editor.</p>
+      </div>
+      <div class="b">
+        <h3>Overlord</h3>
+        <p>You say "open Spotify" → Spotify opens.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">How it works</span>
+    <h2>Four layers. Swap any one.</h2>
+    <p class="dim">Each stage talks to the next through a small, boring interface, so replacing
+      one never touches the others.</p>
+
+    <div class="pipe">
+      <div class="stage"><span class="n">Ears</span><b>Listen</b><span>mic → text</span></div>
+      <div class="stage"><span class="n">Brain</span><b>Route</b><span>text → call</span></div>
+      <div class="stage"><span class="n">Hands</span><b>Act</b><span>run it</span></div>
+      <div class="stage"><span class="n">Mouth</span><b>Reply</b><span>speak</span></div>
+    </div>
+
+    <p class="dim" style="margin-top:26px">The interesting part is the brain. It never parses English.
+      It hands the model a list of functions and their schemas, and the model replies with a
+      structured call — so the infinite ways a person can phrase something become the model's
+      problem instead of an endless chain of if-statements.</p>
+
+    <pre><span class="c-com">// you said: "yo can you fire up spotify for me"</span>
+{ name: <span class="c-str">"open_app"</span>, input: { app_name: <span class="c-str">"Spotify"</span> } }</pre>
+  </section>
+
+  <section>
+    <span class="eyebrow">Extending it</span>
+    <h2>A new skill is one file.</h2>
+    <p class="dim">Drop a file in <code>src/actions/</code>. The registry finds it at boot — the
+      router and the main loop are never edited.</p>
+
+    <pre><span class="c-key">export default</span> {
+  name: <span class="c-str">"open_url"</span>,
+  description:
+    <span class="c-str">"Open a website in the browser. Use for 'open github',"</span> +
+    <span class="c-str">" 'go to twitter', 'pull up my linkedin'."</span>,
+  input_schema: {
+    type: <span class="c-str">"object"</span>,
+    properties: { url: { type: <span class="c-str">"string"</span> } },
+    required: [<span class="c-str">"url"</span>],
+  },
+  <span class="c-key">async</span> run({ url }) {
+    <span class="c-key">await</span> run(<span class="c-str">"open"</span>, [url]);
+    <span class="c-key">return</span> <span class="c-str">`Opening ${url}`</span>;
+  },
+};</pre>
+    <p class="dim"><small>The <code>description</code> is not a comment. It's the only thing the model
+      reads when deciding whether to use your action — write it like a signature a stranger
+      has to understand.</small></p>
+  </section>
+
+  <section id="install">
+    <span class="eyebrow">Running it</span>
+    <h2>Start with no keys at all.</h2>
+    <ol>
+      <li><b>See the machine turn</b><span><code>npm run dry</code> — mock brain, no network, no
+        API key. Type commands and watch the pipeline work.</span></li>
+      <li><b>Add the voice</b><span><code>brew install sox whisper-cpp</code>, download a model,
+        then <code>npm run wake:dry</code> — real mic, real transcription, still no key.</span></li>
+      <li><b>Give it a real brain</b><span>Put an Anthropic key in <code>.env</code> and run
+        <code>npm start</code>. Now say <em>"Overlord, open Spotify."</em></span></li>
+      <li><b>When it mishears you</b><span><code>npm run tune</code> reports what every stage
+        actually saw — mic level, transcript, wake-word score — because otherwise a failure
+        just looks like silence.</span></li>
+    </ol>
+  </section>
+
+  <section>
+    <span class="eyebrow">Privacy</span>
+    <h2>Always-on is not just a convenience change.</h2>
+    <p class="dim">Push-to-talk uploads audio when you press a key — you consented, once, per command.
+      A wake word listens forever. Sending that to a cloud transcriber would stream your whole
+      room to someone's server, and nobody else in it agreed to that.</p>
+    <p class="dim">So wake mode defaults to <code>WHISPER_MODE=local</code>. whisper.cpp runs on your
+      laptop and the audio never leaves it. The cloud API stays available, opt-in.</p>
+  </section>
+
+  <section>
+    <span class="eyebrow">Status</span>
+    <h2>What's proven, and what isn't.</h2>
+    <p class="dim">Stated plainly, because it's public and someone might rely on it.</p>
+    <table>
+      <thead><tr><th>Component</th><th>State</th></tr></thead>
+      <tbody>
+        <tr><td>Intent router &amp; action registry</td><td class="yes">tested</td></tr>
+        <tr><td>Wake-word matcher <span class="dim">— 16 cases</span></td><td class="yes">tested</td></tr>
+        <tr><td>Conversation state machine <span class="dim">— 8 cases</span></td><td class="yes">tested</td></tr>
+        <tr><td>Typed mode</td><td class="yes">tested</td></tr>
+        <tr><td>Microphone &amp; local transcription</td><td class="no">in progress</td></tr>
+        <tr><td>macOS control actions</td><td class="no">in progress</td></tr>
+      </tbody>
+    </table>
+    <p class="dim" style="margin-top:22px"><small>The test suite runs with no microphone, no API key and
+      no network — wake detection and timing are exactly the parts that can't be debugged by
+      using the app, because when they're wrong you get silence.</small></p>
+  </section>
+
+  <footer>
+    <p>Built by Kabir Vashisht · MIT</p>
+    <p><a href="https://github.com/kabirvashisht4-glitch/overlord">github.com/kabirvashisht4-glitch/overlord</a></p>
+  </footer>
+</div>
+
+<script>
+  // The hero types out a real exchange. The product's whole thesis is that a
+  // spoken sentence becomes an action, so showing that happening beats any
+  // description of it.
+  const SCRIPT = [
+    {c:"note", t:"listening for “overlord”…"},
+    {c:"said", t:"Overlord, open Spotify"},
+    {c:"did",  t:"Opened Spotify."},
+    {c:"said", t:"and turn the volume down"},
+    {c:"did",  t:"Volume set to 30."},
+    {c:"note", t:"↑ no wake word needed — 8s follow-up window"},
+    {c:"said", t:"Overlord, ask Gemini what a monad is"},
+    {c:"did",  t:"A monad is a design pattern for chaining…"},
+  ];
+
+  const term = document.getElementById("term");
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function renderAll(){
+    term.textContent = "";
+    for (const line of SCRIPT){
+      const el = document.createElement("span");
+      el.className = "row " + line.c;
+      el.textContent = line.t;
+      term.appendChild(el);
+    }
+  }
+
+  async function play(){
+    term.textContent = "";
+    for (const line of SCRIPT){
+      const el = document.createElement("span");
+      el.className = "row " + line.c;
+      term.appendChild(el);
+
+      if (line.c === "said"){
+        // Type spoken lines character by character; the pauses are the point.
+        const cur = document.createElement("span");
+        cur.className = "cursor";
+        el.appendChild(cur);
+        for (const ch of line.t){
+          cur.insertAdjacentText("beforebegin", ch);
+          await wait(34);
+        }
+        cur.remove();
+        await wait(340);
+      } else {
+        el.textContent = line.t;
+        await wait(line.c === "note" ? 620 : 780);
+      }
+    }
+    const cur = document.createElement("span");
+    cur.className = "cursor";
+    term.appendChild(cur);
+  }
+
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+
+  if (reduce) renderAll();
+  else {
+    // Only animate once it's actually on screen.
+    const io = new IntersectionObserver((entries, obs) => {
+      if (entries.some(e => e.isIntersecting)) { obs.disconnect(); play(); }
+    }, {threshold:.25});
+    io.observe(term);
+  }
+</script>
+
+</body>
+</html>
