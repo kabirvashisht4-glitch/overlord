@@ -13,7 +13,8 @@
     "dry": "node src/index.js --text --dry",
     "wake:test": "node test/wakeword.test.mjs",
     "doctor": "node test/doctor.mjs",
-    "tune": "node test/tune.mjs"
+    "tune": "node test/tune.mjs",
+    "wake:dry": "node src/index.js --wake --dry"
   },
   "engines": {
     "node": ">=18"

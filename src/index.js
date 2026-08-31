@@ -225,10 +225,10 @@ async function wakeLoop(registry) {
     if (inFollowUp) {
       // Already awake — take the whole sentence as the command. But strip a
       // repeated wake word, because people naturally say it again anyway.
-      const hit = detectWakeWord(text, wake, config.wakeThreshold);
+      const hit = detectWakeWord(text, config.wakeWordList, config.wakeThreshold);
       command = hit.matched ? hit.command : text;
     } else {
-      const hit = detectWakeWord(text, wake, config.wakeThreshold);
+      const hit = detectWakeWord(text, config.wakeWordList, config.wakeThreshold);
       if (!hit.matched) {
         // FEEDBACK WITHOUT SURVEILLANCE.
         //
@@ -289,15 +289,20 @@ async function main() {
   console.log(`  ${registry.size} actions: ${[...registry.keys()].join(", ")}`);
 
   if (DRY) console.log("  mode: DRY (mock brain, no API calls)");
-  else if (!config.anthropicKey) {
+  if (!DRY && !config.anthropicKey) {
     console.log("\n  ⚠  No ANTHROPIC_API_KEY found.");
     console.log("     Add it to .env, or try:  npm run dry\n");
     process.exit(1);
   }
   console.log("");
 
-  if (TEXT_MODE || DRY) await textLoop(registry);
-  else if (WAKE_MODE) await wakeLoop(registry);
+  // Order matters: --wake wins over --dry, so `--wake --dry` exercises the
+  // real microphone and real transcription against the mock brain. That
+  // combination is the single most useful diagnostic in the project — it
+  // proves the entire voice path works before an API key is involved.
+  // Let every expensive dependency be independently switchable off.
+  if (WAKE_MODE) await wakeLoop(registry);
+  else if (TEXT_MODE || DRY) await textLoop(registry);
   else await voiceLoop(registry);
 }
 
