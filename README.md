@@ -42,7 +42,6 @@ machine turning before you spend a rupee.
 
 ```bash
 cp .env.example .env
-# put your ANTHROPIC_API_KEY in .env
 npm run text
 ```
 
@@ -56,15 +55,27 @@ whole point of the design.
 brew install sox whisper-cpp
 curl -L -o ~/.overlord-whisper.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
-npm run doctor      # tells you exactly what's still missing
+npm run doctor
 npm start
 ```
 
 Now just talk. Say **"Overlord, open Spotify"** from across the room.
 
-`npm run doctor` checks every dependency and prints the exact fix for
-anything missing. Run it first — in wake mode a broken setup shows up as
-*silence*, which is the worst thing to debug.
+Run those lines **one at a time**, not as a block.
+
+`npm run doctor` checks every dependency is installed.
+
+If it starts but never reacts to your voice, run:
+
+```bash
+npm run tune
+```
+
+That records five seconds, then reports what each stage of the pipeline
+actually saw — microphone level, the transcript whisper produced, and the
+wake-word score against your threshold. In wake mode every failure looks the
+same from outside (silence), so `tune` exists to turn that silence back into
+a readable number.
 
 **Push-to-talk instead** (no wake word, press Enter to talk): `npm run ptt`
 
@@ -283,9 +294,9 @@ things break.
 ## Tests
 
 ```bash
-npm run wake:test                  # 16 real Whisper mishearings
-node test/statemachine.test.mjs    # 30s of conversation, fake clock, 0ms
-npm run doctor                     # environment check
+npm run wake:test
+node test/statemachine.test.mjs
+npm run doctor
 ```
 
 All of it runs with no microphone, no API key and no network. That's not an
