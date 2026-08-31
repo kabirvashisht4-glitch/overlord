@@ -20,18 +20,21 @@
 import { createInterface } from "node:readline";
 import { loadActions } from "./actions/index.js";
 import { route, mockRoute } from "./router.js";
-import { startRecording, speak } from "./listen.js";
+import { startRecording, speak, speakAndWait } from "./listen.js";
 import { transcribe } from "./transcriber.js";
+import { captureUtterance } from "./wake.js";
+import { detectWakeWord } from "./wakeword.js";
 import { config } from "./config.js";
 
 const args = new Set(process.argv.slice(2));
 const TEXT_MODE = args.has("--text");
 const DRY = args.has("--dry");
+const WAKE_MODE = args.has("--wake");
 const VERBOSE = args.has("-v") || args.has("--verbose");
 
 // --- the core: one full turn ------------------------------------------------
 
-async function runOnce(transcript, registry) {
+async function runOnce(transcript, registry, { silent = false } = {}) {
   if (!transcript.trim()) return "";
 
   // 1. BRAIN — decide what to do.
@@ -59,7 +62,8 @@ async function runOnce(transcript, registry) {
 
   // 3. MOUTH — report back.
   console.log(`🤖 ${result}`);
-  speak(result);
+  if (!silent) speak(result);   // wake mode speaks itself, so it can wait
+  return result;
 }
 
 // --- input modes ------------------------------------------------------------
@@ -68,7 +72,7 @@ async function textLoop(registry) {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   console.log("Type a command (or 'exit').\n");
 
-  // NOTE (a real bug I hit while building this):
+  // NOTE (a real bug this code hit during development):
   // The obvious version is a recursive `rl.question(prompt, cb)`. It works
   // when you type by hand, but silently DROPS lines when input is piped in
   // (`echo "..." | node src/index.js`) — readline buffers all the lines at
@@ -119,6 +123,113 @@ async function voiceLoop(registry) {
   cycle();
 }
 
+// --- wake word mode ---------------------------------------------------------
+//
+// CONCEPT: MODEL IT AS A STATE MACHINE.
+//
+// The moment a program is always-on and reacts to the outside world, "just
+// write the steps in order" stops working. You need to name the states it
+// can be in and the events that move between them. Write the diagram down
+// FIRST — most bugs in this kind of program are states you forgot existed.
+//
+//   ┌──────────────────────────────────────────────────────────┐
+//   │                                                          │
+//   ▼                heard wake word                           │
+// SLEEPING ──────────────────────────────▶ AWAKE ──▶ THINKING ─┤
+//   ▲  │  heard something else                          │      │
+//   │  └──(discard, don't even log it)                  ▼      │
+//   │                                                SPEAKING  │
+//   │                    follow-up window expires        │     │
+//   └────────────────────────────────────────────────────┘◀────┘
+//                                    (stay AWAKE if within follow-up window)
+//
+// Two subtle states that are easy to forget, and both bite here:
+//   1. SPEAKING — while the mouth is on, the ear MUST be off, or it hears
+//      itself and loops forever.
+//   2. The follow-up window — being briefly awake after a reply is what
+//      makes it feel like a conversation instead of a vending machine.
+
+async function wakeLoop(registry) {
+  const wake = config.wakeWord;
+  console.log(`Listening for "${wake}". Ctrl+C to stop.`);
+  console.log(`  transcription: ${config.whisperMode === "local" ? "local (private)" : "OpenAI API (audio leaves your machine)"}`);
+  if (config.followUpSeconds > 0) {
+    console.log(`  follow-up: ${config.followUpSeconds}s after each reply, no wake word needed`);
+  }
+  console.log("");
+
+  let awakeUntil = 0; // timestamp; while now < this, skip the wake word check
+
+  while (true) {
+    let wav;
+    try {
+      // BLOCKS here — costs nothing — until an actual human noise happens.
+      wav = await captureUtterance();
+    } catch (err) {
+      console.log(`⚠  ${err.message}`);
+      return;
+    }
+    if (!wav) continue; // too short: a cough, a door, a keyboard clack
+
+    let text;
+    try {
+      text = await transcribe(wav);
+    } catch (err) {
+      console.log(`⚠  ${err.message}`);
+      // Back off before retrying. Without this, a misconfigured whisper
+      // spins this loop at full speed and floods your terminal with the
+      // same error thousands of times a second. Any error inside a
+      // `while(true)` needs a brake.
+      await new Promise((r) => setTimeout(r, 3000));
+      continue;
+    }
+    if (!text) continue;
+
+    const inFollowUp = Date.now() < awakeUntil;
+    let command = null;
+
+    if (inFollowUp) {
+      // Already awake — take the whole sentence as the command. But strip a
+      // repeated wake word, because people naturally say it again anyway.
+      const hit = detectWakeWord(text, wake, config.wakeThreshold);
+      command = hit.matched ? hit.command : text;
+    } else {
+      const hit = detectWakeWord(text, wake, config.wakeThreshold);
+      if (!hit.matched) {
+        // NOT a false-positive log. Printing every overheard sentence would
+        // turn your terminal into a transcript of your private life — and
+        // if you ever piped logs to a file, a permanent one. Only show this
+        // when explicitly debugging.
+        if (VERBOSE) console.log(`   (ignored: "${text}")`);
+        continue;
+      }
+      command = hit.command;
+      if (VERBOSE) console.log(`   [wake ${hit.score.toFixed(2)}]`);
+    }
+
+    // "Overlord" with nothing after it — acknowledge and open the window,
+    // exactly like a real assistant chiming and waiting.
+    if (!command.trim()) {
+      console.log(`🗣  (${wake})`);
+      await speakAndWait("Yes?");
+      awakeUntil = Date.now() + config.followUpSeconds * 1000;
+      continue;
+    }
+
+    console.log(`🗣  ${command}`);
+
+    // silent:true — runOnce must NOT speak, because we need to await the
+    // speech ourselves before re-opening the mic.
+    const reply = await runOnce(command, registry, { silent: true });
+
+    // SPEAKING state: ear off, mouth on. Then reopen the follow-up window
+    // from the moment speech ENDS, not from when it started — otherwise a
+    // long answer eats the user's entire chance to reply.
+    if (reply) await speakAndWait(reply);
+    awakeUntil = Date.now() + config.followUpSeconds * 1000;
+  }
+}
+
 // --- boot -------------------------------------------------------------------
 
 async function main() {
@@ -136,6 +247,7 @@ async function main() {
   console.log("");
 
   if (TEXT_MODE || DRY) await textLoop(registry);
+  else if (WAKE_MODE) await wakeLoop(registry);
   else await voiceLoop(registry);
 }
 
