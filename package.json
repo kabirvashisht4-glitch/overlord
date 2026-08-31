@@ -3,15 +3,20 @@
   "version": "0.2.0",
   "description": "A local voice agent. Say its name -> it decides -> it acts on your Mac.",
   "type": "module",
-  "bin": { "overlord": "./src/index.js" },
+  "bin": {
+    "overlord": "./src/index.js"
+  },
   "scripts": {
     "start": "node src/index.js --wake",
     "ptt": "node src/index.js",
     "text": "node src/index.js --text",
     "dry": "node src/index.js --text --dry",
     "wake:test": "node test/wakeword.test.mjs",
-    "doctor": "node test/doctor.mjs"
+    "doctor": "node test/doctor.mjs",
+    "tune": "node test/tune.mjs"
   },
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {}
 }
