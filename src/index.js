@@ -20,7 +20,8 @@
 import { createInterface } from "node:readline";
 import { loadActions } from "./actions/index.js";
 import { route, mockRoute } from "./router.js";
-import { startRecording, transcribe, speak } from "./listen.js";
+import { startRecording, speak } from "./listen.js";
+import { transcribe } from "./transcriber.js";
 import { config } from "./config.js";
 
 const args = new Set(process.argv.slice(2));
