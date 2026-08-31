@@ -69,8 +69,29 @@ async function runOnce(transcript, registry, { silent = false } = {}) {
 // --- input modes ------------------------------------------------------------
 
 async function textLoop(registry) {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  // THREE THINGS THIS GUARDS AGAINST, all found on a real machine:
+  //
+  // 1. The prompt used the 🗣 emoji (U+1F5E3). That codepoint is text-default
+  //    without a variation selector, and some terminal fonts render it as
+  //    NOTHING — so the prompt was invisible and the app looked dead. Never
+  //    put a decorative glyph where a functional cue belongs; ASCII here.
+  //
+  // 2. Some launchers hand the child process a stdin that is not a terminal
+  //    and is already at EOF. The async iterator then finishes instantly and
+  //    the program exits without a word, which looks identical to a crash.
+  //    Detected and explained below rather than exiting silently.
+  //
+  // 3. rl.prompt() instead of a manual stdout.write, so readline owns the
+  //    cursor and redraws correctly after output.
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    prompt: "you> ",
+  });
   console.log("Type a command (or 'exit').\n");
+  if (!process.stdin.isTTY) {
+    console.log("note: stdin is not a terminal — reading piped input.\n");
+  }
 
   // NOTE (a real bug this code hit during development):
   // The obvious version is a recursive `rl.question(prompt, cb)`. It works
@@ -83,13 +104,26 @@ async function textLoop(registry) {
   // processes lines one at a time and respects back-pressure in both cases.
   // Lesson: async callbacks + recursion is where subtle input bugs live.
   // If you can express something as a loop over an async iterator, do that.
-  process.stdout.write("🗣  ");
+  let handled = 0;
+  rl.prompt();
   for await (const line of rl) {
     if (["exit", "quit", "q"].includes(line.trim().toLowerCase())) break;
-    await runOnce(line, registry);
-    process.stdout.write("🗣  ");
+    if (line.trim()) {
+      handled++;
+      await runOnce(line, registry);
+    }
+    rl.prompt();
   }
   rl.close();
+
+  // If the loop ended without ever seeing a line, stdin was closed before we
+  // got it. Say so. An unexplained instant exit is the least debuggable
+  // outcome a program can produce — always spend three lines explaining it.
+  if (handled === 0) {
+    console.log("\n\x1b[33mNo input was received — stdin closed immediately.\x1b[0m");
+    console.log("If you expected to type commands, run it directly instead of via npm:");
+    console.log("  node src/index.js --text --dry\n");
+  }
 }
 
 async function voiceLoop(registry) {
@@ -196,13 +230,29 @@ async function wakeLoop(registry) {
     } else {
       const hit = detectWakeWord(text, wake, config.wakeThreshold);
       if (!hit.matched) {
-        // NOT a false-positive log. Printing every overheard sentence would
-        // turn your terminal into a transcript of your private life — and
-        // if you ever piped logs to a file, a permanent one. Only show this
-        // when explicitly debugging.
-        if (VERBOSE) console.log(`   (ignored: "${text}")`);
+        // FEEDBACK WITHOUT SURVEILLANCE.
+        //
+        // First version printed nothing here unless debugging. That was a
+        // mistake: "heard you, wasn't the wake word" then looks exactly like
+        // "crashed" or "mic is dead" — the user has no way to tell a working
+        // agent from a broken one, and silence is the worst bug report there
+        // is.
+        //
+        // But printing the transcript would turn the terminal into a running
+        // record of every private conversation in the room, and a permanent
+        // one if logs are ever redirected to a file.
+        //
+        // So: a dot. It proves the pipeline is alive and heard speech, and
+        // reveals nothing about what was said. The score goes with it because
+        // a run of 0.6x dots says "lower your threshold" at a glance.
+        // When a design pulls between usefulness and privacy, look for the
+        // signal that carries only what's needed.
+        process.stdout.write(
+          VERBOSE ? `   (ignored: "${text}")\n` : `\x1b[2m·${hit.score ? hit.score.toFixed(2) : ""}\x1b[0m `,
+        );
         continue;
       }
+      process.stdout.write("\n");
       command = hit.command;
       if (VERBOSE) console.log(`   [wake ${hit.score.toFixed(2)}]`);
     }
