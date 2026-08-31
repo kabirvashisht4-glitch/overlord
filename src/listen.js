@@ -107,6 +107,25 @@ export function speak(text) {
   proc.unref();
 }
 
+/**
+ * Same, but waits until it has finished talking.
+ *
+ * Needed for wake-word mode. If the mic is live while the speaker is
+ * talking, the agent HEARS ITSELF, transcribes its own reply, and if that
+ * reply happens to contain the wake word it triggers itself — forever.
+ * That's the classic voice-assistant feedback loop, and it's genuinely
+ * hard to debug from the outside because it looks like possession.
+ *
+ * The fix is to know exactly when the mouth stops, so the ear can restart.
+ */
+export function speakAndWait(text) {
+  if (!config.speak || config.platform !== "darwin") return Promise.resolve();
+  return new Promise((resolve) => {
+    const proc = spawn("say", [text.slice(0, 400)], { stdio: "ignore" });
+    proc.on("error", resolve);
+    proc.on("close", resolve);
+  });
+}
 
 // ---------------------------------------------------------------------------
 // GOING FULLY LOCAL (the private version — a good weekend upgrade):
