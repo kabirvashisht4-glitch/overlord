@@ -67,17 +67,24 @@ async function textLoop(registry) {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   console.log("Type a command (or 'exit').\n");
 
-  const ask = () =>
-    rl.question("\u{1F5E3}  ", async (line) => {
-      if (["exit", "quit", "q"].includes(line.trim().toLowerCase())) {
-        rl.close();
-        return;
-      }
-      await runOnce(line, registry);
-      ask(); // recurse for the next prompt
-    });
-
-  ask();
+  // NOTE (a real bug I hit while building this):
+  // The obvious version is a recursive `rl.question(prompt, cb)`. It works
+  // when you type by hand, but silently DROPS lines when input is piped in
+  // (`echo "..." | node src/index.js`) — readline buffers all the lines at
+  // once and the recursion only re-registers a listener after the first
+  // callback, so everything after line 1 vanishes.
+  //
+  // `for await (const line of rl)` treats stdin as an async iterator, which
+  // processes lines one at a time and respects back-pressure in both cases.
+  // Lesson: async callbacks + recursion is where subtle input bugs live.
+  // If you can express something as a loop over an async iterator, do that.
+  process.stdout.write("🗣  ");
+  for await (const line of rl) {
+    if (["exit", "quit", "q"].includes(line.trim().toLowerCase())) break;
+    await runOnce(line, registry);
+    process.stdout.write("🗣  ");
+  }
+  rl.close();
 }
 
 async function voiceLoop(registry) {
