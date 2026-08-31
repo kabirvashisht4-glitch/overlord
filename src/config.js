@@ -56,6 +56,25 @@ export const config = {
   speak: get("SPEAK", "true") === "true",
   platform: process.platform, // 'darwin' = macOS, 'win32', 'linux'
 
+  // --- wake word mode ------------------------------------------------------
+  wakeWord: get("WAKE_WORD", "overlord"),
+
+  // How close a mishearing has to be, 0..1. See wakeword.js for why 0.72.
+  wakeThreshold: Number(get("WAKE_THRESHOLD", "0.72")),
+
+  // 'local' = whisper.cpp on your machine. 'cloud' = OpenAI's API.
+  // Deliberately defaults to local: always-on listening means this decides
+  // whether your room is continuously uploaded to someone else's server.
+  whisperMode: get("WHISPER_MODE", "local"),
+  whisperModel: get("WHISPER_MODEL", `${process.env.HOME}/.overlord-whisper.bin`),
+
+  // Voice activity detection. Raise the threshold in a noisy room.
+  vadThreshold: get("VAD_THRESHOLD", "2"),   // % volume that counts as speech
+  vadSilence: get("VAD_SILENCE", "1.2"),     // seconds of quiet = you finished
+
+  // After answering, keep listening this long WITHOUT needing the wake word
+  // again, so you can say "...and turn it up" naturally. 0 disables it.
+  followUpSeconds: Number(get("FOLLOW_UP_SECONDS", "8")),
 };
 
 export const isMac = config.platform === "darwin";
