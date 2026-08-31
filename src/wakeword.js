@@ -135,6 +135,13 @@ export function detectWakeWord(transcript, wakeWord, threshold = 0.72) {
   const wakeWordCount = wake.split(" ").length;
   let best = { matched: false, command: "", score: 0 };
 
+  // Track the closest candidate even when nothing clears the bar. A rejection
+  // that reports 0.68 tells you to lower the threshold; a rejection that just
+  // says "no" tells you nothing. Failure paths should carry as much
+  // information as success paths — that is what makes a system debuggable
+  // from the outside.
+  let bestScore = 0;
+
   // Try consuming 1..N words from the front as the candidate wake phrase,
   // and allow it to start after up to 2 filler words ("um", "hey", "ok").
   for (let start = 0; start <= Math.min(2, words.length - 1); start++) {
@@ -143,6 +150,7 @@ export function detectWakeWord(transcript, wakeWord, threshold = 0.72) {
       if (!candidate) continue;
 
       const score = similarity(candidate, wake);
+      if (score > bestScore) bestScore = score;
       if (score >= threshold && score > best.score) {
         best = {
           matched: true,
