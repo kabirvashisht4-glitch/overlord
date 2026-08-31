@@ -31,13 +31,23 @@ const execFileAsync = promisify(execFile);
  */
 export async function run(cmd, args = [], opts = {}) {
   try {
-    const { stdout } = await execFileAsync(cmd, args, {
+    const { stdout, stderr } = await execFileAsync(cmd, args, {
       timeout: 15000,
       ...opts,
     });
-    return { ok: true, out: (stdout || "").trim() };
+    // RETURN STDERR EVEN ON SUCCESS.
+    //
+    // A bug this exact omission caused: `sox file -n stat` prints its
+    // measurements to STDERR and exits 0. Dropping stderr on the success
+    // path meant the caller got an empty string from a command that had
+    // worked perfectly, and reported "could not measure the recording".
+    //
+    // stderr is not the error channel. It is the *other* channel — plenty of
+    // Unix tools use it for diagnostics, progress and stats on a completely
+    // successful run. Capture both and let the caller decide.
+    return { ok: true, out: (stdout || "").trim(), err: (stderr || "").trim() };
   } catch (err) {
-    return { ok: false, out: "", error: err.message };
+    return { ok: false, out: "", err: "", error: err.message };
   }
 }
 

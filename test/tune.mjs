@@ -24,7 +24,7 @@ import { join } from "node:path";
 import { config } from "../src/config.js";
 import { run } from "../src/sh.js";
 import { transcribe } from "../src/transcriber.js";
-import { detectWakeWord, similarity } from "../src/wakeword.js";
+import { detectWakeWord, findWakeWordAnywhere, similarity } from "../src/wakeword.js";
 
 const ok  = (m) => console.log(`  \x1b[32m✓\x1b[0m ${m}`);
 const bad = (m, fix) => { console.log(`  \x1b[31m✗\x1b[0m ${m}`); if (fix) console.log(`      ${fix}`); };
@@ -66,8 +66,11 @@ if (!existsSync(raw) || statSync(raw).size < 1000) {
 // `sox --i` / `stat` reports peak amplitude as 0..1. That is the same scale
 // the VAD threshold uses, just expressed as a percentage — which is what
 // makes this measurement directly actionable rather than merely interesting.
+// sox writes its measurements to STDERR and exits 0. The first version read
+// only stdout and so reported "could not measure" on a perfectly good
+// recording. stderr is the other output channel, not the failure channel.
 const stat = await run("sox", [raw, "-n", "stat"]);
-const text = `${stat.out}\n${stat.error || ""}`;
+const text = `${stat.out}\n${stat.err || ""}\n${stat.error || ""}`;
 const grab = (label) => {
   const m = text.match(new RegExp(label + "[^0-9-]*(-?[0-9.]+)"));
   return m ? parseFloat(m[1]) : null;
@@ -130,14 +133,15 @@ try {
 // ---------------------------------------------------------------- GATE 4 ---
 if (heard) {
   console.log("\n\x1b[1m4. did the wake matcher accept it?\x1b[0m");
-  const hit = detectWakeWord(heard, config.wakeWord, config.wakeThreshold);
+  const hit = detectWakeWord(heard, config.wakeWordList, config.wakeThreshold);
 
   // Show the score for each of the first few words, so a near-miss is
   // visible as a number rather than as nothing happening.
   const words = heard.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(Boolean);
-  console.log(`   wake word: "${config.wakeWord}"   threshold: ${config.wakeThreshold}\n`);
-  for (const w of words.slice(0, 4)) {
-    const s = similarity(w, config.wakeWord.toLowerCase());
+  console.log(`   wake word: "${config.wakeWord}"   also accepting: ${config.wakeAliases.join(", ") || "(none)"}`);
+  console.log(`   threshold: ${config.wakeThreshold}\n`);
+  for (const w of words.slice(0, 8)) {
+    const s = Math.max(...config.wakeWordList.map((c) => similarity(w, c.toLowerCase())));
     const mark = s >= config.wakeThreshold ? "\x1b[32m✓\x1b[0m" : " ";
     console.log(`   ${mark} ${w.padEnd(16)} ${s.toFixed(2)} ${"█".repeat(Math.round(s * 24))}`);
   }
@@ -148,13 +152,37 @@ if (heard) {
     console.log(`   command sent to the router: \x1b[1m"${hit.command}"\x1b[0m`);
     console.log("\n\x1b[32mEverything works. Run `npm start` and talk.\x1b[0m\n");
   } else {
-    const best = Math.max(0, ...words.slice(0, 4).map((w) => similarity(w, config.wakeWord.toLowerCase())));
-    bad(`no match — best score was ${best.toFixed(2)}, threshold is ${config.wakeThreshold}`,
-        best > 0.5
-          ? `Close. Lower it: WAKE_THRESHOLD=${(Math.floor(best * 20) / 20).toFixed(2)} in .env`
-          : `Whisper heard something quite different from "${config.wakeWord}".\n` +
-            `      Either say it more distinctly, or pick a wake word whisper\n` +
-            `      transcribes reliably — try WAKE_WORD=computer or WAKE_WORD=jarvis.`);
+    // Look everywhere, including where the matcher deliberately won't.
+    const anywhere = findWakeWordAnywhere(heard, config.wakeWordList, config.wakeThreshold);
+
+    if (anywhere.score >= config.wakeThreshold && anywhere.index > 2) {
+      // FAILURE A: said it, but not at the start.
+      bad(`the wake word has to come FIRST`,
+          `You said it as word ${anywhere.index + 1} of ${anywhere.total}.\n` +
+          `      Only the first three words are checked — that is what stops\n` +
+          `      "the overlord manga" firing a command.\n\n` +
+          `      Say:  "${config.wakeWord}, open Spotify"   \x1b[32m(wake word first)\x1b[0m\n` +
+          `      Not:  "hey what is up ${config.wakeWord}"  \x1b[31m(too late)\x1b[0m`);
+    } else if (anywhere.score < 0.5 && words.length) {
+      // FAILURE B: whisper heard a completely different word.
+      // No threshold fixes this. Name the variant instead.
+      const suspect = words[Math.min(anywhere.index >= 0 ? anywhere.index : 0, words.length - 1)];
+      bad(`whisper did not hear "${config.wakeWord}" at all`,
+          `It transcribed your speech as: "${heard}"\n\n` +
+          `      This is not a threshold problem. The model produced a different\n` +
+          `      WORD, not a misspelling, so no amount of fuzzy matching finds it.\n` +
+          `      Two ways forward:\n\n` +
+          `      1. Teach it what your model actually hears — add to .env:\n` +
+          `         \x1b[1mWAKE_ALIASES=${[...config.wakeAliases, suspect].join(",")}\x1b[0m\n\n` +
+          `      2. Or use a word whisper knows well (more reliable):\n` +
+          `         \x1b[1mWAKE_WORD=computer\x1b[0m   or   \x1b[1mWAKE_WORD=jarvis\x1b[0m\n\n` +
+          `      Say the wake word FIRST, then a short pause, then the command.`);
+    } else {
+      // FAILURE C: close, just under the bar.
+      const b = anywhere.score;
+      bad(`no match — best score ${b.toFixed(2)}, threshold ${config.wakeThreshold}`,
+          `Close. Lower it in .env:  \x1b[1mWAKE_THRESHOLD=${(Math.floor(b * 20) / 20).toFixed(2)}\x1b[0m`);
+    }
     console.log("");
   }
 }
