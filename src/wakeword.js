@@ -86,6 +86,34 @@ export function similarity(a, b) {
 const normalise = (s) =>
   s.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
 
+// ---------------------------------------------------------------------------
+// A DESIGN RULE that is easy to get wrong, and that the test suite catches:
+//
+//   NORMALISE FOR MATCHING. RETURN THE ORIGINAL FOR USE.
+//
+// My first version compared normalised text AND returned the normalised
+// command. So "Overlord, open Spotify" reached the router as "open spotify"
+// — lowercased, punctuation gone. That silently throws away information the
+// next stage wants: capitalisation is a real hint about proper nouns
+// ("Spotify", "VS Code"), and the router is a language model that reads it.
+//
+// Lowercasing is a comparison trick. It is not a fact about the input.
+// Keep the two apart: match on the cleaned copy, hand on the real thing.
+// This bug class shows up everywhere — search, dedupe, login, sorting.
+// ---------------------------------------------------------------------------
+
+/**
+ * Split into words while keeping the original spelling of each one aligned
+ * with its normalised form, so we can match on one and slice from the other.
+ */
+function alignedWords(text) {
+  const pairs = [];
+  for (const raw of text.trim().split(/\s+/)) {
+    const norm = normalise(raw);
+    if (norm) pairs.push({ raw, norm }); // drop pure-punctuation tokens
+  }
+  return pairs;
+}
 
 /**
  * Look for the wake word near the START of the transcript, and return the
@@ -100,27 +128,27 @@ const normalise = (s) =>
  * @returns {{matched: boolean, command: string, score: number}}
  */
 export function detectWakeWord(transcript, wakeWord, threshold = 0.72) {
-  const text = normalise(transcript);
+  const words = alignedWords(transcript);
   const wake = normalise(wakeWord);
-  if (!text) return { matched: false, command: "", score: 0 };
+  if (!words.length) return { matched: false, command: "", score: 0 };
 
-  const words = text.split(" ");
   const wakeWordCount = wake.split(" ").length;
-
   let best = { matched: false, command: "", score: 0 };
 
   // Try consuming 1..N words from the front as the candidate wake phrase,
   // and allow it to start after up to 2 filler words ("um", "hey", "ok").
   for (let start = 0; start <= Math.min(2, words.length - 1); start++) {
     for (let take = wakeWordCount; take <= wakeWordCount + 1; take++) {
-      const candidate = words.slice(start, start + take).join(" ");
+      const candidate = words.slice(start, start + take).map((w) => w.norm).join(" ");
       if (!candidate) continue;
 
       const score = similarity(candidate, wake);
       if (score >= threshold && score > best.score) {
         best = {
           matched: true,
-          command: words.slice(start + take).join(" ").trim(),
+          // .raw — the user's ACTUAL words, capitals and all, handed to the
+          // router untouched. Only the wake word itself is removed.
+          command: words.slice(start + take).map((w) => w.raw).join(" ").trim(),
           score,
         };
       }

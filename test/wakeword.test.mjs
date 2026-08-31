@@ -29,11 +29,11 @@ function check(label, transcript, shouldMatch, expectedCommand = null) {
 
 console.log("\nSHOULD TRIGGER — real Whisper mishearings of 'Overlord'\n");
 check("exact",              "overlord open spotify",       true,  "open spotify");
-check("capitalised + comma","Overlord, open Spotify",      true,  "open spotify");
-check("split into 2 words", "Over lord, open Spotify",     true,  "open spotify");
+check("capitalised + comma","Overlord, open Spotify",      true,  "open Spotify");
+check("split into 2 words", "Over lord, open Spotify",     true,  "open Spotify");
 check("heard a real word",  "Overload open spotify",       true,  "open spotify");
 check("b/v confusion",      "Oberlord open spotify",       true,  "open spotify");
-check("trailing period",    "over Lord. Open Spotify.",    true,  "open spotify");
+check("trailing period",    "over Lord. Open Spotify.",    true,  "Open Spotify.");
 check("dropped letter",     "overlord open spotify",       true,  "open spotify");
 check("filler word first",  "um overlord play some lofi",  true,  "play some lofi");
 check("hey prefix",         "hey overlord what time is it",true,  "what time is it");
