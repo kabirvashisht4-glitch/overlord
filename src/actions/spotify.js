@@ -33,6 +33,7 @@
 
 import { run, osascript } from "../sh.js";
 import { isMac } from "../config.js";
+import { searchTracks, topTrackByArtist } from "../spotify-api.js";
 
 const tell = (cmd) => osascript(`tell application "Spotify" to ${cmd}`);
 
@@ -40,13 +41,15 @@ export default {
   name: "spotify",
 
   description:
-    "Control Spotify playback on the Mac: start playing, pause, skip to the next " +
-    "or previous track, toggle shuffle, or say what is currently playing. " +
-    "Use 'open_and_play' when the user wants Spotify opened AND music started in " +
-    "one go — e.g. 'open spotify and play', 'put spotify on', 'open spotify and " +
-    "start the song'. Use this instead of open_app whenever the user mentions " +
-    "music or playing something on Spotify. This cannot search for a specific " +
-    "song by name — for that, tell the user it needs the Spotify Web API.",
+    "Control Spotify on the Mac. Playback: play, pause, next, previous, shuffle, " +
+    "now_playing. Use 'open_and_play' when the user wants Spotify opened AND music " +
+    "started in one go ('open spotify and play', 'put spotify on'). " +
+    "Use 'play_track' with `query` for a SPECIFIC song by name — 'play Blinding " +
+    "Lights', 'play Bohemian Rhapsody by Queen'. Use 'top_by_artist' with `query` " +
+    "for 'the most popular / most played / most viewed song by X'. " +
+    "Prefer this over open_app whenever music is mentioned. " +
+    "It cannot reach Liked Songs or private playlists — those need a full account " +
+    "login this does not have; say so rather than guessing a song.",
 
   input_schema: {
     type: "object",
@@ -62,16 +65,53 @@ export default {
           "shuffle_on",
           "shuffle_off",
           "now_playing",
+          "play_track",
+          "top_by_artist",
         ],
         description:
           "What to do. 'open_and_play' launches Spotify then starts playback.",
+      },
+      query: {
+        type: "string",
+        description:
+          "For play_track: the song, optionally with artist ('Blinding Lights The Weeknd'). " +
+          "For top_by_artist: just the artist name ('The Weeknd'). Ignored otherwise.",
       },
     },
     required: ["operation"],
   },
 
-  async run({ operation }) {
-    if (!isMac) return `(not macOS) would run spotify: ${operation}`;
+  async run({ operation, query }) {
+    if (!isMac) return `(not macOS) would run spotify: ${operation}${query ? ` "${query}"` : ""}`;
+
+    // --- search-backed operations ------------------------------------------
+    if (operation === "play_track" || operation === "top_by_artist") {
+      if (!query) return "Which song or artist?";
+      try {
+        const track =
+          operation === "top_by_artist"
+            ? await topTrackByArtist(query)
+            : (await searchTracks(query, { limit: 1 }))[0];
+
+        if (!track) return `Couldn't find anything for "${query}".`;
+
+        await run("open", ["-a", "Spotify"]);
+        for (let i = 0; i < 20; i++) {
+          const p = await osascript('tell application "System Events" to (name of processes) contains "Spotify"');
+          if (p.ok && p.out === "true") break;
+          await new Promise((r) => setTimeout(r, 250));
+        }
+        await new Promise((r) => setTimeout(r, 500));
+
+        // A track URI is an opaque id from Spotify's own API, so there is no
+        // user text being spliced into this script.
+        const res = await tell(`play track "${track.uri}"`);
+        if (!res.ok) return `Found ${track.name}, but Spotify wouldn't start it. Is it signed in?`;
+        return `Playing ${track.name} by ${track.artist}.`;
+      } catch (err) {
+        return err.message;
+      }
+    }
 
     // Launch first when asked, then wait for the app to be ready.
     //

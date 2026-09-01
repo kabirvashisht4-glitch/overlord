@@ -60,6 +60,11 @@ export const config = {
   routerModel: get("ROUTER_MODEL", ""),
 
   groqKey: get("GROQ_API_KEY"),
+
+  // Spotify catalogue search. Client-credentials only — no user login, so it
+  // reaches the public catalogue but never your account.
+  spotifyId: get("SPOTIFY_CLIENT_ID"),
+  spotifySecret: get("SPOTIFY_CLIENT_SECRET"),
   ollamaUrl: get("OLLAMA_URL", "http://localhost:11434/v1"),
   speak: get("SPEAK", "true") === "true",
 

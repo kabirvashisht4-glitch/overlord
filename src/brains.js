@@ -1,69 +1,110 @@
 // ---------------------------------------------------------------------------
-// brains.js — the router works with ANY model provider.
+// brains.js — one conversation interface over every model provider.
 //
-// The first version hard-coded Anthropic. That was a limitation, not a
-// decision: every one of these providers can do tool calling, and which one
-// you can afford should not dictate the architecture.
+// This file exists twice over. First as the ADAPTER PATTERN (third use in the
+// project, after askLLM.js and transcriber.js): several vendors, one job, one
+// function each, one shared signature.
 //
-// THIS IS THE ADAPTER PATTERN AGAIN — the third time in this project
-// (askLLM.js for providers, transcriber.js for local vs cloud). When a
-// pattern shows up three times, it has stopped being a trick and become a
-// habit worth having:
+// Second, and more importantly, as the thing that makes MULTI-STEP possible.
 //
-//   Several vendors, one job  ->  one function each, one shared signature.
+// The first router asked for one tool call and stopped. That is enough for
+// "open Spotify" and useless for "open Spotify and play the second song",
+// which is three moves: launch, find, play. To do that the model has to SEE
+// what happened after each step — so instead of sending one message and
+// reading one reply, we keep a transcript and hand it back each turn.
 //
-// Every adapter below takes (transcript, tools, systemPrompt) and returns
-// { name, input }. router.js calls one of them and has no idea which.
+// Every provider represents that transcript differently, and that is the only
+// hard part. `converse()` below takes ONE neutral message shape:
 //
-// WHAT ACTUALLY DIFFERS between them is only two things:
-//   1. how the tool list is SHAPED in the request
-//   2. where the chosen call HIDES in the response
-// Everything else — the idea of handing a model functions and getting back a
-// structured call — is the same everywhere. Learn the idea once; the vendor
-// differences are lookup.
+//   { role: "user"|"assistant"|"tool", content, toolCalls?, toolCallId? }
+//
+// and each adapter translates it into whatever its vendor wants. The agent
+// loop in router.js never learns any of those dialects.
 // ---------------------------------------------------------------------------
 
 import { config } from "./config.js";
 
 // --- schema shaping ---------------------------------------------------------
 
-/** OpenAI-family (also Groq, Ollama, OpenRouter, most local servers). */
 const toOpenAITools = (tools) =>
   tools.map((t) => ({
     type: "function",
-    function: {
-      name: t.name,
-      description: t.description,
-      parameters: t.input_schema,
-    },
+    function: { name: t.name, description: t.description, parameters: t.input_schema },
   }));
 
 /**
- * Gemini accepts a SUBSET of JSON Schema and rejects the whole request if it
- * sees a key it doesn't know — a 400 with a vague message, which is a
- * miserable thing to debug. So strip down to the fields it documents rather
- * than hoping. When an API is strict, send it only what it asked for.
+ * Gemini accepts a SUBSET of JSON Schema and rejects the entire request on an
+ * unknown key, with a vague 400. Send only what it documents rather than
+ * hoping. When an API is strict, meet it exactly.
  */
 function toGeminiSchema(schema) {
   if (!schema || typeof schema !== "object") return schema;
   const out = {};
-  if (schema.type) out.type = schema.type;
-  if (schema.description) out.description = schema.description;
-  if (schema.enum) out.enum = schema.enum;
-  if (schema.required) out.required = schema.required;
+  for (const k of ["type", "description", "enum", "required"]) if (schema[k]) out[k] = schema[k];
   if (schema.items) out.items = toGeminiSchema(schema.items);
   if (schema.properties) {
     out.properties = {};
-    for (const [k, v] of Object.entries(schema.properties)) {
-      out.properties[k] = toGeminiSchema(v);
+    for (const [k, v] of Object.entries(schema.properties)) out.properties[k] = toGeminiSchema(v);
+  }
+  return out;
+}
+
+// --- message translation ----------------------------------------------------
+
+/** Neutral transcript -> Anthropic's content-block format. */
+function toAnthropicMessages(messages) {
+  return messages.map((m) => {
+    if (m.role === "tool") {
+      return {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: m.toolCallId, content: String(m.content) }],
+      };
+    }
+    if (m.role === "assistant" && m.toolCalls?.length) {
+      return {
+        role: "assistant",
+        content: [
+          ...(m.content ? [{ type: "text", text: m.content }] : []),
+          ...m.toolCalls.map((c) => ({
+            type: "tool_use",
+            id: c.id,
+            name: c.name,
+            input: c.input,
+          })),
+        ],
+      };
+    }
+    return { role: m.role, content: String(m.content ?? "") };
+  });
+}
+
+/** Neutral transcript -> OpenAI's format (also Groq, Ollama, OpenRouter). */
+function toOpenAIMessages(messages, system) {
+  const out = [{ role: "system", content: system }];
+  for (const m of messages) {
+    if (m.role === "tool") {
+      out.push({ role: "tool", tool_call_id: m.toolCallId, content: String(m.content) });
+    } else if (m.role === "assistant" && m.toolCalls?.length) {
+      out.push({
+        role: "assistant",
+        content: m.content || null,
+        tool_calls: m.toolCalls.map((c) => ({
+          id: c.id,
+          type: "function",
+          function: { name: c.name, arguments: JSON.stringify(c.input) },
+        })),
+      });
+    } else {
+      out.push({ role: m.role, content: String(m.content ?? "") });
     }
   }
   return out;
 }
 
 // --- adapters ---------------------------------------------------------------
+// Each returns { toolCalls: [{id,name,input}], text }
 
-async function anthropic(transcript, tools, system) {
+async function anthropic({ messages, tools, system }) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -76,23 +117,21 @@ async function anthropic(transcript, tools, system) {
       max_tokens: 1024,
       system,
       tools,
-      tool_choice: { type: "any" }, // must pick a tool, not chat
-      messages: [{ role: "user", content: transcript }],
+      messages: toAnthropicMessages(messages),
     }),
   });
   if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`);
   const data = await res.json();
-  const call = data.content.find((b) => b.type === "tool_use");
-  return call ? { name: call.name, input: call.input } : null;
+  return {
+    toolCalls: data.content
+      .filter((b) => b.type === "tool_use")
+      .map((b) => ({ id: b.id, name: b.name, input: b.input })),
+    text: data.content.filter((b) => b.type === "text").map((b) => b.text).join(""),
+  };
 }
 
-/**
- * One function covers OpenAI, Groq, Ollama, OpenRouter and most local
- * servers, because they all copied OpenAI's request shape. That convergence
- * is worth knowing: pick the format the ecosystem standardised on and a
- * single adapter reaches a dozen providers.
- */
-async function openaiCompatible(transcript, tools, system, { baseUrl, key, model }) {
+/** Covers OpenAI, Groq, Ollama, OpenRouter — they share this request shape. */
+async function openaiCompatible({ messages, tools, system }, { baseUrl, key, model }) {
   const res = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -102,130 +141,126 @@ async function openaiCompatible(transcript, tools, system, { baseUrl, key, model
     body: JSON.stringify({
       model,
       tools: toOpenAITools(tools),
-      tool_choice: "required",
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: transcript },
-      ],
+      messages: toOpenAIMessages(messages, system),
     }),
   });
   if (!res.ok) throw new Error(`${baseUrl} ${res.status}: ${await res.text()}`);
   const data = await res.json();
-  const call = data.choices?.[0]?.message?.tool_calls?.[0];
-  if (!call) return null;
+  const msg = data.choices?.[0]?.message ?? {};
 
-  // Arguments arrive as a JSON STRING here, not an object — a real
-  // difference from Anthropic, and a silent one: forget to parse and you
-  // pass a string where the action expects fields, and it fails deep inside
-  // the action rather than here. Parse at the boundary, always.
-  let input = {};
-  try {
-    input = JSON.parse(call.function.arguments || "{}");
-  } catch {
-    input = {};
-  }
-  return { name: call.function.name, input };
+  return {
+    toolCalls: (msg.tool_calls || []).map((c, i) => ({
+      // Ollama sometimes omits the call id that OpenAI always sends. The next
+      // turn's tool_result has to reference SOMETHING, so synthesise one
+      // rather than sending undefined and getting an opaque 400.
+      id: c.id || `call_${i}_${Date.now()}`,
+      name: c.function?.name,
+      // Arguments arrive as a JSON STRING here, unlike Anthropic. Unparsed,
+      // it fails deep inside the action instead of at this boundary.
+      input: safeParse(c.function?.arguments),
+    })),
+    text: msg.content || "",
+  };
 }
 
-async function gemini(transcript, tools, system) {
-  const model = config.routerModel?.startsWith("gemini")
-    ? config.routerModel
-    : "gemini-2.5-flash";
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+const safeParse = (s) => {
+  if (!s) return {};
+  if (typeof s === "object") return s;
+  try { return JSON.parse(s); } catch { return {}; }
+};
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-goog-api-key": config.geminiKey,
-    },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: system }] },
-      tools: [
-        {
+async function gemini({ messages, tools, system }) {
+  const model = config.routerModel?.startsWith("gemini") ? config.routerModel : "gemini-2.5-flash";
+  const contents = messages.map((m) => {
+    if (m.role === "tool") {
+      return {
+        role: "user",
+        parts: [{ functionResponse: { name: m.toolName, response: { result: String(m.content) } } }],
+      };
+    }
+    if (m.role === "assistant" && m.toolCalls?.length) {
+      return {
+        role: "model",
+        parts: m.toolCalls.map((c) => ({ functionCall: { name: c.name, args: c.input } })),
+      };
+    }
+    return { role: m.role === "assistant" ? "model" : "user", parts: [{ text: String(m.content ?? "") }] };
+  });
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": config.geminiKey },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        tools: [{
           functionDeclarations: tools.map((t) => ({
             name: t.name,
             description: t.description,
             parameters: toGeminiSchema(t.input_schema),
           })),
-        },
-      ],
-      // "ANY" is Gemini's spelling of "you must call a function".
-      toolConfig: { functionCallingConfig: { mode: "ANY" } },
-      contents: [{ role: "user", parts: [{ text: transcript }] }],
-    }),
-  });
+        }],
+        contents,
+      }),
+    },
+  );
   if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`);
   const data = await res.json();
-  const part = data.candidates?.[0]?.content?.parts?.find((p) => p.functionCall);
-  return part ? { name: part.functionCall.name, input: part.functionCall.args || {} } : null;
+  const parts = data.candidates?.[0]?.content?.parts || [];
+  return {
+    toolCalls: parts
+      .filter((p) => p.functionCall)
+      .map((p, i) => ({ id: `g_${i}`, name: p.functionCall.name, input: p.functionCall.args || {} })),
+    text: parts.filter((p) => p.text).map((p) => p.text).join(""),
+  };
 }
 
-// --- the registry -----------------------------------------------------------
+// --- registry ---------------------------------------------------------------
 
 export const BRAINS = {
   anthropic: {
     label: "Anthropic (Claude)",
-    needs: "ANTHROPIC_API_KEY",
     has: () => !!config.anthropicKey,
-    call: anthropic,
+    converse: anthropic,
   },
   openai: {
     label: "OpenAI",
-    needs: "OPENAI_API_KEY",
     has: () => !!config.openaiKey,
-    call: (t, tools, s) =>
-      openaiCompatible(t, tools, s, {
-        baseUrl: "https://api.openai.com/v1",
-        key: config.openaiKey,
-        model: config.routerModel?.startsWith("gpt") ? config.routerModel : "gpt-4o-mini",
-      }),
+    converse: (a) => openaiCompatible(a, {
+      baseUrl: "https://api.openai.com/v1",
+      key: config.openaiKey,
+      model: config.routerModel?.startsWith("gpt") ? config.routerModel : "gpt-4o-mini",
+    }),
   },
   gemini: {
-    label: "Google Gemini (free tier available)",
-    needs: "GEMINI_API_KEY",
+    label: "Google Gemini (free tier)",
     has: () => !!config.geminiKey,
-    call: gemini,
+    converse: gemini,
   },
   groq: {
     label: "Groq (free tier, very fast)",
-    needs: "GROQ_API_KEY",
     has: () => !!config.groqKey,
-    call: (t, tools, s) =>
-      openaiCompatible(t, tools, s, {
-        baseUrl: "https://api.groq.com/openai/v1",
-        key: config.groqKey,
-        model: config.routerModel?.includes("/") || config.routerModel?.includes("llama")
-          ? config.routerModel
-          : "llama-3.3-70b-versatile",
-      }),
+    converse: (a) => openaiCompatible(a, {
+      baseUrl: "https://api.groq.com/openai/v1",
+      key: config.groqKey,
+      model: config.routerModel || "llama-3.3-70b-versatile",
+    }),
   },
   ollama: {
-    label: "Ollama (local, free, no key, works offline)",
-    needs: "nothing — but Ollama must be running",
-    has: () => true, // no key to check; reachability is checked at call time
-    call: (t, tools, s) =>
-      openaiCompatible(t, tools, s, {
-        baseUrl: config.ollamaUrl,
-        key: null,
-        model: config.routerModel?.includes(":") ? config.routerModel : "llama3.1",
-      }),
+    label: "Ollama (local, free, no key, offline)",
+    has: () => true,
+    converse: (a) => openaiCompatible(a, {
+      baseUrl: config.ollamaUrl,
+      key: null,
+      model: config.routerModel || "llama3.1",
+    }),
   },
 };
 
-/**
- * Pick a provider: an explicit setting wins, otherwise the first one whose
- * key is actually present, otherwise local Ollama.
- *
- * Falling back to the free local option rather than erroring is deliberate:
- * the cheapest path to "it works" should never be blocked on a credit card.
- */
 export function pickBrain() {
   const explicit = config.routerProvider?.toLowerCase();
   if (explicit && BRAINS[explicit]) return explicit;
-
-  for (const name of ["anthropic", "openai", "groq", "gemini"]) {
-    if (BRAINS[name].has()) return name;
-  }
+  for (const n of ["anthropic", "openai", "groq", "gemini"]) if (BRAINS[n].has()) return n;
   return "ollama";
 }

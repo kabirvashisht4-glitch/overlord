@@ -37,33 +37,44 @@ const VERBOSE = args.has("-v") || args.has("--verbose");
 async function runOnce(transcript, registry, { silent = false } = {}) {
   if (!transcript.trim()) return "";
 
-  // 1. BRAIN — decide what to do.
-  const decision = DRY ? await mockRoute(transcript) : await route(transcript, registry);
-  if (VERBOSE) console.log(`   ↳ ${decision.name}(${JSON.stringify(decision.input)})`);
+  let reply;
 
-  // 2. HANDS — look it up and run it.
-  const action = registry.get(decision.name);
-  if (!action) {
-    // Defensive: the model can hallucinate a tool name that doesn't exist.
-    // Rare, but "rare" over thousands of runs means "happens".
-    console.log(`⚠  Unknown action "${decision.name}"`);
-    return "";
+  if (DRY) {
+    // Mock brain: single step, no network. Kept because it separates "the
+    // model chose wrong" from "the code is broken" in one run.
+    const decision = await mockRoute(transcript);
+    const action = registry.get(decision.name);
+    if (!action) return `Unknown action "${decision.name}"`;
+    try {
+      reply = await action.run(decision.input || {});
+    } catch (err) {
+      reply = `That failed: ${err.message}`;
+    }
+    if (VERBOSE) console.log(`   ↳ ${decision.name}(${JSON.stringify(decision.input)})`);
+  } else {
+    // AGENT LOOP: may take several steps, each informed by the last.
+    //
+    // Progress is printed as it happens. A multi-second silence while three
+    // tools run reads as a hang; narrating each step is the cure, not making
+    // it faster. Show work while work is happening.
+    try {
+      reply = await route(transcript, registry, {
+        onStep: ({ name, input, result }) => {
+          const arg = Object.values(input || {})[0];
+          console.log(
+            `   \x1b[2m→ ${name}${arg ? `(${String(arg).slice(0, 40)})` : ""}\x1b[0m` +
+            (VERBOSE ? `  ⇒ ${String(result).slice(0, 80)}` : ""),
+          );
+        },
+      });
+    } catch (err) {
+      reply = err.message;
+    }
   }
 
-  let result;
-  try {
-    result = await action.run(decision.input);
-  } catch (err) {
-    // ONE try/catch around ALL actions, instead of one inside each action.
-    // Individual actions get to be simple and optimistic; the loop is the
-    // single place that guarantees a crash never kills the process.
-    result = `That failed: ${err.message}`;
-  }
-
-  // 3. MOUTH — report back.
-  console.log(`🤖 ${result}`);
-  if (!silent) speak(result);   // wake mode speaks itself, so it can wait
-  return result;
+  console.log(`🤖 ${reply}`);
+  if (!silent) speak(reply);   // wake mode speaks itself, so it can wait
+  return reply;
 }
 
 // --- input modes ------------------------------------------------------------
