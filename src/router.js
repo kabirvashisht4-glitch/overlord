@@ -35,6 +35,7 @@
 
 import { config } from "./config.js";
 import { toToolSchemas } from "./actions/index.js";
+import { BRAINS, pickBrain } from "./brains.js";
 
 // PERSONA SHAPES WORDING, NEVER BEHAVIOUR.
 //
@@ -79,48 +80,36 @@ Rules:
  * @returns {{name: string, input: object}}  one tool call
  */
 export async function route(transcript, registry) {
-  if (!config.anthropicKey) {
-    throw new Error(
-      "ANTHROPIC_API_KEY is not set. Add it to .env, or run with --dry to use the offline mock router.",
-    );
+  const name = pickBrain();
+  const brain = BRAINS[name];
+  const tools = toToolSchemas(registry);
+  const system = SYSTEM_PROMPT + (PERSONAS[config.persona] ?? "");
+
+  try {
+    const call = await brain.call(transcript, tools, system);
+    // The model can decline to call anything. Rather than crash, fall back
+    // to the escape hatch — a reply is always better than a stack trace.
+    return call ?? { name: "answer", input: { text: "Sorry, I didn't catch that." } };
+  } catch (err) {
+    // Ollama is the one provider that fails by being switched off rather
+    // than by rejecting you, so its error is a connection refusal with no
+    // hint about what to start. Translate it into the actual fix.
+    if (name === "ollama" && /ECONNREFUSED|fetch failed/i.test(err.message)) {
+      throw new Error(
+        "Ollama isn't running.\n" +
+        "      Start it:      ollama serve\n" +
+        "      Get a model:   ollama pull llama3.1\n" +
+        "      (llama3.1 supports tool calling; llama2 does not.)",
+      );
+    }
+    throw err;
   }
+}
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": config.anthropicKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: config.routerModel,
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT + (PERSONAS[config.persona] ?? ""),
-      tools: toToolSchemas(registry),
-
-      // tool_choice "any" = "you MUST call one of these tools".
-      // Without this the model sometimes replies with chit-chat and your
-      // executor gets nothing to run. This one field removes a whole class
-      // of flaky behaviour — it turns a suggestion into a guarantee.
-      tool_choice: { type: "any" },
-
-      messages: [{ role: "user", content: transcript }],
-    }),
-  });
-
-  if (!res.ok) {
-    throw new Error(`Router API ${res.status}: ${await res.text()}`);
-  }
-
-  const data = await res.json();
-
-  // The reply is a list of content blocks. We want the first tool_use block.
-  const call = data.content.find((b) => b.type === "tool_use");
-  if (!call) {
-    return { name: "answer", input: { text: "Sorry, I didn't catch that." } };
-  }
-
-  return { name: call.name, input: call.input };
+/** Which brain is in use — printed at startup so it is never a mystery. */
+export function brainInfo() {
+  const name = pickBrain();
+  return { name, label: BRAINS[name].label };
 }
 
 // ---------------------------------------------------------------------------

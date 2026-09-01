@@ -15,7 +15,8 @@
     "doctor": "node test/doctor.mjs",
     "tune": "node test/tune.mjs",
     "wake:dry": "node src/index.js --wake --dry",
-    "voices": "say -v '?' | head -40"
+    "voices": "say -v '?' | head -40",
+    "brain": "node -e \"import('./src/router.js').then(m=>console.log('using:', m.brainInfo().label))\""
   },
   "engines": {
     "node": ">=18"

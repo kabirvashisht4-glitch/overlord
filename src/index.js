@@ -19,7 +19,7 @@
 
 import { createInterface } from "node:readline";
 import { loadActions } from "./actions/index.js";
-import { route, mockRoute } from "./router.js";
+import { route, mockRoute, brainInfo } from "./router.js";
 import { startRecording, speak, speakAndWait } from "./listen.js";
 import { transcribe } from "./transcriber.js";
 import { captureUtterance } from "./wake.js";
@@ -310,11 +310,11 @@ async function main() {
   }
 
   if (DRY) console.log("  mode: DRY (mock brain, no API calls)");
-  if (!DRY && !config.anthropicKey) {
-    console.log("\n  ⚠  No ANTHROPIC_API_KEY found.");
-    console.log("     Add it to .env, or try:  npm run dry\n");
-    process.exit(1);
+  else {
+    const b = brainInfo();
+    console.log(`  brain: ${b.label}`);
   }
+
   console.log("");
 
   // Order matters: --wake wins over --dry, so `--wake --dry` exercises the

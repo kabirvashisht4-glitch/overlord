@@ -52,7 +52,15 @@ export const config = {
   anthropicKey: get("ANTHROPIC_API_KEY"),
   openaiKey: get("OPENAI_API_KEY"),
   geminiKey: get("GEMINI_API_KEY"),
-  routerModel: get("ROUTER_MODEL", "claude-haiku-4-5-20251001"),
+  // Which provider decides the action. Leave blank to auto-detect from
+  // whichever key you have; falls back to local Ollama when you have none.
+  routerProvider: get("ROUTER_PROVIDER", ""),
+
+  // Leave blank to let each provider use its own sensible default model.
+  routerModel: get("ROUTER_MODEL", ""),
+
+  groqKey: get("GROQ_API_KEY"),
+  ollamaUrl: get("OLLAMA_URL", "http://localhost:11434/v1"),
   speak: get("SPEAK", "true") === "true",
 
   // Which macOS voice speaks the replies. `npm run voices` lists what is
