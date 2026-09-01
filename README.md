@@ -311,6 +311,36 @@ things break.
 
 ---
 
+## Always on
+
+```bash
+npm run service:install
+```
+
+Overlord now starts when you log in and restarts if it crashes. Logs go to
+`~/Library/Logs/Overlord/`. Stop it with `npm run service:stop`.
+
+### Sleep vs shutdown — what actually keeps running
+
+Everything here runs **on this Mac**. There is no server anywhere.
+
+| Laptop state | Overlord |
+|---|---|
+| Awake | running |
+| Lid closed / asleep | paused, resumes on wake |
+| Shut down | **not running** — nothing runs on a powered-off machine |
+| Logged out | not running (it is a *user* agent, by design) |
+
+Nothing can listen to your microphone or open your apps while the machine is
+off. That isn't a missing feature — it is the same property that makes this
+private. A version that kept working with the laptop shut down would be a
+service on someone else's computer, and it still could not open Spotify on
+yours.
+
+If you want *some* things to happen while you're away, that's a different
+program: a scheduled job on a server that touches remote APIs, not a local
+agent that drives your desktop. Different problem, different tool.
+
 ## Tests
 
 ```bash

@@ -15,8 +15,12 @@
     "doctor": "node test/doctor.mjs",
     "tune": "node test/tune.mjs",
     "wake:dry": "node src/index.js --wake --dry",
-    "voices": "say -v '?' | head -40",
-    "brain": "node -e \"import('./src/router.js').then(m=>console.log('using:', m.brainInfo().label))\""
+    "voices": "node test/voices.mjs",
+    "brain": "node -e \"import('./src/router.js').then(m=>console.log('using:', m.brainInfo().label))\"",
+    "service:install": "bash scripts/install-service.sh",
+    "service:stop": "launchctl unload ~/Library/LaunchAgents/com.kabir.overlord.plist",
+    "service:restart": "launchctl unload ~/Library/LaunchAgents/com.kabir.overlord.plist 2>/dev/null; launchctl load ~/Library/LaunchAgents/com.kabir.overlord.plist",
+    "service:logs": "tail -f ~/Library/Logs/Overlord/overlord.log"
   },
   "engines": {
     "node": ">=18"
