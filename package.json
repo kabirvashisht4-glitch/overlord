@@ -14,7 +14,8 @@
     "wake:test": "node test/wakeword.test.mjs",
     "doctor": "node test/doctor.mjs",
     "tune": "node test/tune.mjs",
-    "wake:dry": "node src/index.js --wake --dry"
+    "wake:dry": "node src/index.js --wake --dry",
+    "voices": "say -v '?' | head -40"
   },
   "engines": {
     "node": ">=18"

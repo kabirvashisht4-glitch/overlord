@@ -100,9 +100,25 @@ export async function transcribe(wavPath) {
  * Speak text out loud. macOS ships `say` — free TTS, no API, no latency.
  * Fire-and-forget so it doesn't block the next command.
  */
+/**
+ * Build the argument list for `say`.
+ *
+ * A voice that is not installed makes `say` fail silently — no sound, no
+ * error, which is the same invisible failure mode as everything else in a
+ * voice app. So the voice name is validated once at startup (see
+ * `npm run voices`) rather than being discovered as silence at runtime.
+ */
+function sayArgs(text, limit) {
+  const args = [];
+  if (config.voice) args.push("-v", config.voice);
+  if (config.voiceRate) args.push("-r", String(config.voiceRate));
+  args.push(text.slice(0, limit));
+  return args;
+}
+
 export function speak(text) {
   if (!config.speak || config.platform !== "darwin") return;
-  const proc = spawn("say", [text.slice(0, 300)], { stdio: "ignore" });
+  const proc = spawn("say", sayArgs(text, 300), { stdio: "ignore" });
   proc.on("error", () => {}); // never let TTS crash the agent
   proc.unref();
 }
@@ -121,7 +137,7 @@ export function speak(text) {
 export function speakAndWait(text) {
   if (!config.speak || config.platform !== "darwin") return Promise.resolve();
   return new Promise((resolve) => {
-    const proc = spawn("say", [text.slice(0, 400)], { stdio: "ignore" });
+    const proc = spawn("say", sayArgs(text, 400), { stdio: "ignore" });
     proc.on("error", resolve);
     proc.on("close", resolve);
   });

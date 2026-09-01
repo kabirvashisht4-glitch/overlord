@@ -288,6 +288,27 @@ async function main() {
   const registry = await loadActions({ verbose: VERBOSE });
   console.log(`  ${registry.size} actions: ${[...registry.keys()].join(", ")}`);
 
+  // VALIDATE THE VOICE AT STARTUP, NOT AT SPEAK TIME.
+  //
+  // `say -v NotAVoice "hi"` fails with no sound and no useful error. In an
+  // app whose whole output is audio, that is indistinguishable from every
+  // other silent failure. Check once, up front, and say exactly how to fix
+  // it. Any setting that fails silently deserves a startup check.
+  if (config.platform === "darwin" && config.voice) {
+    const { run } = await import("./sh.js");
+    const list = await run("say", ["-v", "?"]);
+    const have = `${list.out}\n${list.err || ""}`;
+    if (have && !have.includes(config.voice)) {
+      console.log(`\n  ⚠  Voice "${config.voice}" is not installed — replies would be silent.`);
+      console.log(`     See installed voices:  npm run voices`);
+      console.log(`     Install Daniel: System Settings → Accessibility → Spoken Content`);
+      console.log(`     → System Voice → Manage Voices → English (UK) → Daniel`);
+      console.log(`     Or set VOICE=Alex in .env to use a default one.\n`);
+    } else if (have) {
+      console.log(`  voice: ${config.voice} @ ${config.voiceRate} wpm   persona: ${config.persona}`);
+    }
+  }
+
   if (DRY) console.log("  mode: DRY (mock brain, no API calls)");
   if (!DRY && !config.anthropicKey) {
     console.log("\n  ⚠  No ANTHROPIC_API_KEY found.");

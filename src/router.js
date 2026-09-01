@@ -36,6 +36,25 @@
 import { config } from "./config.js";
 import { toToolSchemas } from "./actions/index.js";
 
+// PERSONA SHAPES WORDING, NEVER BEHAVIOUR.
+//
+// It is appended to the routing rules, but it only ever affects the TEXT of
+// an `answer`. Which tool gets called is decided by the schemas above it.
+//
+// That separation is deliberate and worth copying: if a personality could
+// also change what the agent DOES, then anyone who can influence the
+// personality can influence your actions. Character and capability stay in
+// different boxes.
+const PERSONAS = {
+  jarvis:
+    "\nWhen using the `answer` tool, write like a composed British butler-" +
+    "engineer: brief, dry, unflappable, faintly amused. Address the user as " +
+    "'sir'. One or two short sentences, never more. Understate rather than " +
+    "enthuse — 'Done, sir.' not 'Sure thing! All set!'. Never use exclamation " +
+    "marks or emoji.",
+  plain: "",
+};
+
 // The system prompt shapes HOW it picks. Short, specific, and full of
 // tie-breakers. Most "the AI did something dumb" bugs are fixed here, not
 // in code. Each line below resolves a real ambiguity worth expecting.
@@ -76,7 +95,7 @@ export async function route(transcript, registry) {
     body: JSON.stringify({
       model: config.routerModel,
       max_tokens: 1024,
-      system: SYSTEM_PROMPT,
+      system: SYSTEM_PROMPT + (PERSONAS[config.persona] ?? ""),
       tools: toToolSchemas(registry),
 
       // tool_choice "any" = "you MUST call one of these tools".

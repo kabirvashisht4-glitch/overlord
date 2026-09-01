@@ -54,6 +54,21 @@ export const config = {
   geminiKey: get("GEMINI_API_KEY"),
   routerModel: get("ROUTER_MODEL", "claude-haiku-4-5-20251001"),
   speak: get("SPEAK", "true") === "true",
+
+  // Which macOS voice speaks the replies. `npm run voices` lists what is
+  // installed. Daniel is British, male and unhurried — the register people
+  // actually mean when they say "make it sound like Jarvis". This picks a
+  // voice with a similar CHARACTER; it is not a copy of any actor's voice.
+  voice: get("VOICE", "Daniel"),
+
+  // Speaking rate in words per minute. `say` defaults near 175, which reads
+  // as chirpy. Slowing it is most of what makes a voice sound composed.
+  voiceRate: get("VOICE_RATE", "165"),
+
+  // Personality for spoken replies. Shapes wording only — it never changes
+  // which action runs, so a persona can't talk the agent into doing something
+  // different. Keep character and capability strictly separate.
+  persona: get("PERSONA", "jarvis"),
   platform: process.platform, // 'darwin' = macOS, 'win32', 'linux'
 
   // --- wake word mode ------------------------------------------------------
