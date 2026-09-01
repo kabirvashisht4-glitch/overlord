@@ -104,6 +104,12 @@ export const config = {
   vadThreshold: get("VAD_THRESHOLD", "2"),   // % volume that counts as speech
   vadSilence: get("VAD_SILENCE", "1.2"),     // seconds of quiet = you finished
 
+  // Hold the Mac awake while listening, so a closed lid doesn't end the
+  // session. Only effective on mains power — macOS refuses to stay awake
+  // with the lid shut on battery, and that refusal is not something an app
+  // gets to override. Know which limits are yours to move and which aren't.
+  keepAwake: get("KEEP_AWAKE", "false") === "true",
+
   // After answering, keep listening this long WITHOUT needing the wake word
   // again, so you can say "...and turn it up" naturally. 0 disables it.
   followUpSeconds: Number(get("FOLLOW_UP_SECONDS", "8")),

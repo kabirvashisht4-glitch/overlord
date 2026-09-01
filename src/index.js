@@ -185,6 +185,26 @@ async function voiceLoop(registry) {
 
 async function wakeLoop(registry) {
   const wake = config.wakeWord;
+
+  // KEEP THE MACHINE AWAKE (opt-in).
+  //
+  // `caffeinate` is macOS's own tool for this; -d -i -s hold off display,
+  // idle and system sleep. Spawning it as a CHILD is the important part:
+  // when Overlord exits for any reason — crash included — the child dies
+  // with it and the Mac sleeps normally again.
+  //
+  // A program that changes a system-wide setting must tie the undo to its
+  // own lifetime, not to remembering to clean up. Otherwise a crash leaves
+  // the laptop unable to sleep and nobody knows why.
+  let caffeine = null;
+  if (config.keepAwake && config.platform === "darwin") {
+    const { spawn } = await import("node:child_process");
+    caffeine = spawn("caffeinate", ["-d", "-i", "-s"], { stdio: "ignore" });
+    caffeine.on("error", () => {});
+    process.on("exit", () => { try { caffeine.kill(); } catch {} });
+    console.log("  keep-awake: on (needs mains power for a closed lid)");
+  }
+
   console.log(`Listening for "${wake}". Ctrl+C to stop.`);
   console.log(`  transcription: ${config.whisperMode === "local" ? "local (private)" : "OpenAI API (audio leaves your machine)"}`);
   if (config.followUpSeconds > 0) {
