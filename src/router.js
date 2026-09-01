@@ -125,6 +125,12 @@ export async function mockRoute(transcript) {
 
   if (t.includes("claude")) return { name: "ask_llm", input: { provider: "claude", prompt: transcript } };
   if (t.includes("gemini")) return { name: "ask_llm", input: { provider: "gemini", prompt: transcript } };
+  if (t.includes("spotify")) {
+    const wantsPlay = /\b(play|on|start|song|music)\b/.test(t);
+    return { name: "spotify", input: { operation: wantsPlay ? "open_and_play" : "play" } };
+  }
+  if (t.includes("next") || t.includes("skip")) return { name: "spotify", input: { operation: "next" } };
+  if (t.includes("what is playing") || t.includes("whats playing")) return { name: "spotify", input: { operation: "now_playing" } };
   if (t.includes("youtube") || t.startsWith("play")) return { name: "play_youtube", input: { query: transcript.replace(/^play /i, "") } };
   if (t.includes("open")) return { name: "open_app", input: { app_name: transcript.split(/open /i)[1]?.trim() || "Finder" } };
   if (t.includes("volume")) return { name: "system_control", input: { operation: "set_volume", value: 30 } };
